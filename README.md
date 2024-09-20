@@ -7,7 +7,7 @@
 
 Note: for some reason it works best when the browser is zoomed in (e.g. %400). A scaling issue to be looked at
 
-## Work to improve
+## Possible improvements
 * Scaling issue to be resolved to work with normal 100% zoom
 * Remove the 2 points constraint (it's intentional in this prototype) and allow the default behaviour of selecting multiple points
 * Ability to put multiple points on a route to help dragging the points and establishing the main route in a specific way
