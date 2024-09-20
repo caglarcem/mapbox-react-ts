@@ -13,7 +13,7 @@ Note: for some reason it works best when the browser is zoomed in (e.g. %400). A
 * Ability to put multiple points on a route to help dragging the points and establishing the main route in a specific way
 
 
-https://github.com/caglarcem/mapbox-react-ts/blob/main/mapbox-directions.gif
+![alt-text](https://github.com/caglarcem/mapbox-react-ts/blob/main/mapbox-directions.gif)
 
 # How to run
 
