@@ -1,354 +1,522 @@
-import axios from "axios";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
 import Map, {
   Layer,
-  MapLayerMouseEvent,
+  MapMouseEvent,
   MapRef,
   Marker,
   MarkerDragEvent,
   Source,
 } from "react-map-gl";
+import AddressEntry from "./AddressEntry";
+import { ContextMenuProps, CurrentRoute, Route } from "./interfaces";
+import CustomMarker from "./Marker";
 
-mapboxgl.accessToken = "my_access_token"; // This can be found in COV project
+mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_API_TOKEN || "";
 
-interface Route {
-  geometry: {
-    coordinates: number[][];
-    type: string;
-  };
-  distance: number;
-  duration: number;
-}
+const mapboxDirectionsApi =
+  "https://api.mapbox.com/directions/v5/mapbox/walking";
+const mapboxGeocodingApi = "https://api.mapbox.com/geocoding/v5/mapbox.places";
 
 const App: React.FC = () => {
-  const mapRef = useRef<MapRef | null>(null);
-  const [points, setPoints] = useState<number[][]>([]);
+  const [contextMenu, setContextMenu] = useState<ContextMenuProps>({
+    visible: false,
+    x: 0,
+    y: 0,
+    lngLat: { lng: 0, lat: 0 },
+  });
+
+  const [currentRoute, setCurrentRoute] = useState<CurrentRoute | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
+  const [, setLastSettedRoute] = useState<"origin" | "destination" | null>(
+    null
+  );
+  const [routeCounter, setRouteCounter] = useState<number>(1);
 
-  // fetch additional routes
-  const generateViaPoints = (
-    start: number[],
-    end: number[],
-    count: number
-  ): number[][] => {
-    const viaPoints: number[][] = [];
-    const offset = 0.005;
+  const mapRef = useRef<MapRef | null>(null);
 
-    for (let i = 0; i < count; i++) {
-      const randomAngle = Math.random() * 2 * Math.PI;
-      const deltaLng = offset * Math.cos(randomAngle) * (i + 1);
-      const deltaLat = offset * Math.sin(randomAngle) * (i + 1);
+  // right click
+  const handleContextMenu = (e: MapMouseEvent) => {
+    e.preventDefault();
 
-      const via = [
-        (start[0] + end[0]) / 2 + deltaLng,
-        (start[1] + end[1]) / 2 + deltaLat,
-      ];
-
-      viaPoints.push(via);
-    }
-
-    return viaPoints;
+    const { point, lngLat } = e;
+    setContextMenu({
+      visible: true,
+      x: point.x,
+      y: point.y,
+      lngLat,
+    });
   };
 
-  const fetchRoute = async (
-    start: number[],
-    end: number[],
-    via?: number[]
-  ): Promise<Route | null> => {
+  // map click closes contextmenu
+  const handleMapClick = () => {
+    if (contextMenu.visible) {
+      setContextMenu({ ...contextMenu, visible: false });
+    }
+  };
+
+  // Reversing to get address from coordinates
+  const reverseGeocode = async (lng: number, lat: number) => {
+    const url = `${mapboxGeocodingApi}/${lng},${lat}.json?access_token=${mapboxgl.accessToken}`;
     try {
-      let coordinates = [start, end];
-      if (via) {
-        coordinates = [start, via, end];
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data?.features.length > 0) {
+        return data.features[0].place_name;
+      } else {
+        return "Unknown Location";
       }
-      const coordinateString = coordinates
-        .map((coord) => `${coord[0]},${coord[1]}`)
-        .join(";");
-
-      const response = await axios.get(
-        `https://api.mapbox.com/directions/v5/mapbox/cycling/${coordinateString}`,
-        {
-          params: {
-            access_token: mapboxgl.accessToken,
-            overview: "full",
-            geometries: "geojson",
-            alternatives: false,
-            steps: false,
-          },
-        }
-      );
-
-      const newRoute: Route = response.data.routes[0];
-
-      return newRoute;
     } catch (error) {
-      console.error("Error fetching route with via point:", error);
-      return null;
+      console.error("Error reverse geocoding:", error);
+      return "Unknown Location";
     }
   };
 
-  // Get routes (main + alternatives)
-  const getRoutes = async (start: number[], end: number[]) => {
-    try {
-      const mainResponse = await axios.get(
-        `https://api.mapbox.com/directions/v5/mapbox/cycling/${start[0]},${start[1]};${end[0]},${end[1]}`,
-        {
-          params: {
-            access_token: mapboxgl.accessToken,
-            overview: "full",
-            geometries: "geojson",
-            alternatives: true,
-            steps: false,
+  // Handle setting orig or dest from context menu
+  const handleMenuItemClick = async (action: "origin" | "destination") => {
+    const { lngLat } = contextMenu;
+    const address = await reverseGeocode(lngLat.lng, lngLat.lat);
+
+    if (action === "origin") {
+      if (currentRoute) {
+        // Update current origin
+        setCurrentRoute((prev) => ({
+          ...prev!,
+          origin: {
+            coordinates: [lngLat.lng, lngLat.lat],
+            address,
           },
-        }
-      );
-
-      let data: Route[] = mainResponse.data.routes;
-
-      // make sure main route is shortest
-      data.sort((a: Route, b: Route) => a.distance - b.distance);
-
-      console.log("Fetched Routes from Alternatives:", data);
-
-      const maxRouteCount = 2; // 1 main + 2 alternatives
-      if (data.length < maxRouteCount) {
-        const additionalRoutesNeeded = maxRouteCount - data.length;
-        const viaPoints = generateViaPoints(start, end, additionalRoutesNeeded);
-
-        for (const via of viaPoints) {
-          const additionalRoute = await fetchRoute(start, end, via);
-          if (additionalRoute) {
-            // uniqueness checking the route
-            const isUnique = data.every(
-              (route) =>
-                route.geometry.coordinates.toString() !==
-                additionalRoute.geometry.coordinates.toString()
-            );
-            if (isUnique) {
-              data.push(additionalRoute);
-              console.log("Added Additional Route:", additionalRoute);
-              if (data.length >= maxRouteCount) break;
-            }
-          }
-        }
+        }));
+      } else {
+        // new route
+        setCurrentRoute({
+          origin: {
+            coordinates: [lngLat.lng, lngLat.lat],
+            address,
+          },
+          destination: null,
+          geometry: null,
+        });
       }
+      setLastSettedRoute("origin");
+    } else if (action === "destination") {
+      if (currentRoute && currentRoute.origin) {
+        // Update current destination if origin exists
+        setCurrentRoute((prev) => ({
+          ...prev!,
+          destination: {
+            coordinates: [lngLat.lng, lngLat.lat],
+            address,
+          },
+        }));
+      } else if (routes.length > 0) {
+        // Update the latest route's destination
+        const updatedRoutes = [...routes];
+        const latestRouteIndex = updatedRoutes.length - 1;
+        updatedRoutes[latestRouteIndex].destination.coordinates = [
+          lngLat.lng,
+          lngLat.lat,
+        ];
+        updatedRoutes[latestRouteIndex].destination.address = address;
 
-      // limit to max count
-      data = data.slice(0, maxRouteCount);
+        // Recalculate the route
+        const originCoords = updatedRoutes[latestRouteIndex].origin.coordinates;
+        const destinationCoords =
+          updatedRoutes[latestRouteIndex].destination.coordinates;
 
-      console.log("Final Routes:", data);
-
-      setRoutes(data); // Set all
-      setSelectedRouteIndex(0); // Default to the first
-    } catch (error) {
-      console.error("Error fetching routes:", error);
-      alert("Unable to fetch routes. Please try again.");
-    }
-  };
-
-  // Delet closest point if already two points
-  const replaceClosestPoint = (newPoint: number[]) => {
-    if (points.length < 2) {
-      setPoints([...points, newPoint]);
-    } else {
-      const distances = points.map((p) =>
-        Math.hypot(p[0] - newPoint[0], p[1] - newPoint[1])
-      );
-      const closestIndex = distances.indexOf(Math.min(...distances));
-      const updatedPoints = [...points];
-      updatedPoints[closestIndex] = newPoint;
-      setPoints(updatedPoints);
-    }
-  };
-
-  const handleMapClick = (e: MapLayerMouseEvent) => {
-    // Check if clicked on a route
-    if (e.features && e.features.length > 0) {
-      const clickedFeature = e.features[0];
-      const routeIndex = clickedFeature?.properties?.routeIndex;
-      if (routeIndex !== undefined && routeIndex !== selectedRouteIndex) {
-        setSelectedRouteIndex(routeIndex);
-        return;
+        fetchAndUpdateRoute(originCoords, destinationCoords, latestRouteIndex);
       }
+      setLastSettedRoute("destination");
     }
-    // adding points otherwise
-    const coords: number[] = [e.lngLat.lng, e.lngLat.lat];
-    replaceClosestPoint(coords);
+
+    setContextMenu({ ...contextMenu, visible: false });
   };
 
-  const handleMarkerDragEnd = (event: MarkerDragEvent, index: number) => {
-    const newPoints = [...points];
-    newPoints[index] = [event.lngLat.lng, event.lngLat.lat];
-    setPoints(newPoints);
-  };
-
-  // // Route dragging
-  // const handleMouseDown = useCallback((e: MapLayerMouseEvent) => {
-  //   if (e.features && e.features.length > 0) {
-  //     // Check if the clicked is part of the route layer
-  //     const layerId = e.features[0]?.layer?.id;
-  //     if (layerId === "route-layer") {
-  //       e.preventDefault();
-  //       setIsDraggingRoute(true);
-  //       const map = mapRef.current?.getMap();
-  //       if (map) {
-  //         map.getCanvas().style.cursor = "grabbing";
-  //         map.dragPan.disable(); // Disable map panning
-  //       }
-  //     }
-  //   }
-  // }, []);
-
-  // const handleMouseMove = useCallback(
-  //   (e: MapLayerMouseEvent) => {
-  //     if (isDraggingRoute) {
-  //       const coords = [e.lngLat.lng, e.lngLat.lat];
-  //       setViaPoint(coords);
-  //     }
-  //   },
-  //   [isDraggingRoute]
-  // );
-
-  // const handleMouseUp = useCallback(
-  //   (e: MapLayerMouseEvent) => {
-  //     if (isDraggingRoute) {
-  //       setIsDraggingRoute(false);
-  //       const map = mapRef.current?.getMap();
-  //       if (map) {
-  //         map.getCanvas().style.cursor = "";
-  //         map.dragPan.enable(); // Re-enable map panning
-  //       }
-  //     }
-  //   },
-  //   [isDraggingRoute]
-  // );
-
-  // Update the routes on change points
+  // Fetch route when origin or destination changes
   useEffect(() => {
-    if (points.length === 2) {
-      getRoutes(points[0], points[1]);
+    const fetchRoute = async () => {
+      if (currentRoute && currentRoute.origin && currentRoute.destination) {
+        const originCoords = currentRoute.origin.coordinates;
+        const destinationCoords = currentRoute.destination.coordinates;
+
+        const url = `${mapboxDirectionsApi}/${originCoords[0]},${originCoords[1]};${destinationCoords[0]},${destinationCoords[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (data.routes && data.routes.length > 0) {
+            const geometry = data.routes[0].geometry;
+
+            setCurrentRoute((prev) => ({
+              ...prev!,
+              geometry,
+            }));
+          }
+        } catch (error) {
+          console.error("Error fetching route:", error);
+        }
+      }
+    };
+
+    fetchRoute();
+  }, [
+    currentRoute?.origin?.coordinates,
+    currentRoute?.destination?.coordinates,
+  ]);
+
+  // Handle dragging
+  const handleCurrentMarkerDragEnd = async (
+    event: MarkerDragEvent,
+    type: "origin" | "destination"
+  ) => {
+    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
+    const address = await reverseGeocode(lngLat[0], lngLat[1]);
+    if (currentRoute) {
+      if (type === "origin") {
+        setCurrentRoute((prev) => ({
+          ...prev!,
+          origin: {
+            coordinates: lngLat,
+            address,
+          },
+        }));
+      } else if (type === "destination") {
+        setCurrentRoute((prev) => ({
+          ...prev!,
+          destination: {
+            coordinates: lngLat,
+            address,
+          },
+        }));
+      }
     }
-  }, [points]);
+  };
 
-  // get layer IDs
-  const alternativeRouteLayerIds = routes
-    .map((_, index) =>
-      index !== selectedRouteIndex ? `alternative-route-layer-${index}` : null
-    )
-    .filter((id): id is string => id !== null);
+  // dragging of route markers
+  const handleRouteMarkerDragEnd = async (
+    event: MarkerDragEvent,
+    index: number,
+    type: "origin" | "destination"
+  ) => {
+    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
+    const address = await reverseGeocode(lngLat[0], lngLat[1]);
 
-  const interactiveLayerIds = ["route-layer", ...alternativeRouteLayerIds];
+    // Update the routes origin or destination
+    const updatedRoutes = [...routes];
+    if (type === "origin") {
+      updatedRoutes[index].origin.coordinates = lngLat;
+      updatedRoutes[index].origin.address = address;
+    } else if (type === "destination") {
+      updatedRoutes[index].destination.coordinates = lngLat;
+      updatedRoutes[index].destination.address = address;
+    }
+
+    // Recalculate the route
+    const originCoords = updatedRoutes[index].origin.coordinates;
+    const destinationCoords = updatedRoutes[index].destination.coordinates;
+
+    fetchAndUpdateRoute(originCoords, destinationCoords, index);
+  };
+
+  // Fetch and update route
+  const fetchAndUpdateRoute = async (
+    originCoords: [number, number],
+    destinationCoords: [number, number],
+    routeIndex: number
+  ) => {
+    const url = `${mapboxDirectionsApi}/${originCoords[0]},${originCoords[1]};${destinationCoords[0]},${destinationCoords[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.routes && data.routes.length > 0) {
+        const geometry = data.routes[0].geometry;
+
+        setRoutes((prevRoutes) => {
+          const updatedRoutes = [...prevRoutes];
+          updatedRoutes[routeIndex].geometry = geometry;
+          return updatedRoutes;
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching updated route:", error);
+    }
+  };
+
+  // Remove a saved route
+  const removeRoute = (index: number) => {
+    const updatedRoutes = [...routes];
+    updatedRoutes.splice(index, 1);
+    setRoutes(updatedRoutes);
+  };
 
   return (
-    <div style={{ height: "100vh" }}>
-      <Map
-        ref={mapRef}
-        initialViewState={{
-          longitude: 153.021072,
-          latitude: -27.470125,
-          zoom: 12,
+    <div style={{ height: "100vh", display: "flex" }}>
+      {/* Left side */}
+      <div
+        style={{
+          width: "300px",
+          padding: "10px",
+          backgroundColor: "#f7f7f7",
+          overflowY: "auto",
         }}
-        mapStyle="mapbox://styles/mapbox/streets-v11"
-        style={{ width: "100%", height: "100%" }}
-        onClick={handleMapClick}
-        // onMouseDown={handleMouseDown}
-        // onMouseMove={handleMouseMove}
-        // onMouseUp={handleMouseUp}
-        mapboxAccessToken={mapboxgl.accessToken}
-        interactiveLayerIds={interactiveLayerIds}
-        // cursor={isDraggingRoute ? "grabbing" : ""}
-        cursor={""}
       >
-        {/* Markers for points */}
-        {points.map((point, index) => (
-          <Marker
-            key={index}
-            longitude={point[0]}
-            latitude={point[1]}
-            draggable={true}
-            onDragEnd={(e) => handleMarkerDragEnd(e, index)}
-          >
-            <div
-              style={{
-                backgroundColor: "red",
-                borderRadius: "50%",
-                width: "16px",
-                height: "16px",
-                cursor: "pointer",
-                border: "2px solid white",
+        {/* Current route */}
+        {currentRoute && (
+          <div style={{ marginBottom: "20px" }}>
+            <h3>Current Route</h3>
+            {currentRoute.origin && (
+              <div>
+                <label>Origin:</label>
+                <AddressEntry
+                  value={currentRoute.origin.address}
+                  onSelect={(address, coords) => {
+                    setCurrentRoute((prev) => ({
+                      ...prev!,
+                      origin: {
+                        coordinates: coords,
+                        address,
+                      },
+                    }));
+                  }}
+                />
+              </div>
+            )}
+            {currentRoute.destination && (
+              <div>
+                <label>Destination:</label>
+                <AddressEntry
+                  value={currentRoute.destination.address}
+                  onSelect={(address, coords) => {
+                    setCurrentRoute((prev) => ({
+                      ...prev!,
+                      destination: {
+                        coordinates: coords,
+                        address,
+                      },
+                    }));
+                  }}
+                />
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (
+                  currentRoute &&
+                  currentRoute.origin &&
+                  currentRoute.destination &&
+                  currentRoute.geometry
+                ) {
+                  setRoutes([
+                    ...routes,
+                    {
+                      id: routeCounter,
+                      origin: currentRoute.origin,
+                      destination: currentRoute.destination,
+                      geometry: currentRoute.geometry,
+                    },
+                  ]);
+                  setCurrentRoute(null);
+                  setLastSettedRoute(null);
+                  setRouteCounter(routeCounter + 1);
+                }
               }}
-              aria-label={`Point ${index + 1}`}
-              role="button"
-            />
-          </Marker>
+              disabled={
+                !(
+                  currentRoute &&
+                  currentRoute.origin &&
+                  currentRoute.destination &&
+                  currentRoute.geometry
+                )
+              }
+            >
+              Save Location
+            </button>
+          </div>
+        )}
+
+        {/* Saved routes */}
+        {routes.map((route, index) => (
+          <div key={index} style={{ marginBottom: "20px" }}>
+            <h3>Route {route.id}</h3>
+            <div>
+              <label>Origin:</label>
+              <AddressEntry
+                value={route.origin.address}
+                onSelect={(address, coords) => {
+                  const updatedRoutes = [...routes];
+                  updatedRoutes[index].origin.coordinates = coords;
+                  updatedRoutes[index].origin.address = address;
+                  setRoutes(updatedRoutes);
+
+                  const originCoords = coords;
+                  const destinationCoords =
+                    updatedRoutes[index].destination.coordinates;
+
+                  fetchAndUpdateRoute(originCoords, destinationCoords, index);
+                }}
+              />
+            </div>
+            <div>
+              <label>Destination:</label>
+              <AddressEntry
+                value={route.destination.address}
+                onSelect={(address, coords) => {
+                  const updatedRoutes = [...routes];
+                  updatedRoutes[index].destination.coordinates = coords;
+                  updatedRoutes[index].destination.address = address;
+                  setRoutes(updatedRoutes);
+
+                  const originCoords = updatedRoutes[index].origin.coordinates;
+                  const destinationCoords = coords;
+
+                  fetchAndUpdateRoute(originCoords, destinationCoords, index);
+                }}
+              />
+            </div>
+            <button onClick={() => removeRoute(index)}>Remove Location</button>
+          </div>
         ))}
+      </div>
 
-        {/* Alternative route layers */}
-        {routes.length > 1 &&
-          routes.map((routeData, index) => {
-            // Skip selected
-            if (index === selectedRouteIndex) return null;
+      <div style={{ flexGrow: 1, position: "relative" }}>
+        <Map
+          ref={mapRef}
+          initialViewState={{
+            longitude: 153.021072,
+            latitude: -27.470125,
+            zoom: 12,
+          }}
+          mapStyle="mapbox://styles/mapbox/streets-v11"
+          onContextMenu={handleContextMenu}
+          onClick={handleMapClick}
+          style={{ width: "100%", height: "100%" }}
+          mapboxAccessToken={mapboxgl.accessToken}
+        >
+          {/* Current origin */}
+          {currentRoute && currentRoute.origin && (
+            <Marker
+              longitude={currentRoute.origin.coordinates[0]}
+              latitude={currentRoute.origin.coordinates[1]}
+              draggable
+              onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "origin")}
+            >
+              <CustomMarker type="origin" />
+            </Marker>
+          )}
 
-            return (
+          {/* Current dest */}
+          {currentRoute && currentRoute.destination && (
+            <Marker
+              longitude={currentRoute.destination.coordinates[0]}
+              latitude={currentRoute.destination.coordinates[1]}
+              draggable
+              onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "destination")}
+            >
+              <CustomMarker type="destination" />
+            </Marker>
+          )}
+
+          {/* Current Route Line */}
+          {currentRoute && currentRoute.geometry && (
+            <Source
+              id="current-route"
+              type="geojson"
+              data={{
+                type: "Feature",
+                geometry: currentRoute.geometry,
+              }}
+            >
+              <Layer
+                id="current-route-line"
+                type="line"
+                paint={{
+                  "line-color": "#3887be",
+                  "line-width": 6,
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Show saved routes */}
+          {routes.map((route, index) => (
+            <React.Fragment key={index}>
               <Source
-                key={`alternative-route-${index}`}
-                id={`alternative-route-source-${index}`}
+                id={`route-${index}`}
                 type="geojson"
                 data={{
                   type: "Feature",
-                  properties: {
-                    routeIndex: index,
-                  },
-                  geometry: routeData.geometry,
+                  geometry: route.geometry,
                 }}
               >
                 <Layer
-                  id={`alternative-route-layer-${index}`}
+                  id={`route-line-${index}`}
                   type="line"
                   paint={{
-                    "line-color": "#FF7F50",
+                    "line-color": "#3887be",
                     "line-width": 6,
-                    "line-opacity": 0.8,
                   }}
                 />
               </Source>
-            );
-          })}
 
-        {/* Main route layer */}
-        {routes.length > 0 && (
-          <Source
-            id="route-source"
-            type="geojson"
-            data={{
-              type: "Feature",
-              properties: {
-                routeIndex: selectedRouteIndex,
-              },
-              geometry: routes[selectedRouteIndex].geometry,
+              {/* Origin - destination */}
+              <Marker
+                longitude={route.origin.coordinates[0]}
+                latitude={route.origin.coordinates[1]}
+                draggable
+                onDragEnd={(e) => handleRouteMarkerDragEnd(e, index, "origin")}
+              >
+                <CustomMarker type="origin" id={route.id} />
+              </Marker>
+
+              <Marker
+                longitude={route.destination.coordinates[0]}
+                latitude={route.destination.coordinates[1]}
+                draggable
+                onDragEnd={(e) =>
+                  handleRouteMarkerDragEnd(e, index, "destination")
+                }
+              >
+                <CustomMarker type="destination" id={route.id} />
+              </Marker>
+            </React.Fragment>
+          ))}
+        </Map>
+
+        {contextMenu.visible && (
+          <div
+            style={{
+              position: "absolute",
+              top: contextMenu.y,
+              left: contextMenu.x,
+              backgroundColor: "white",
+              border: "1px solid #ccc",
+              zIndex: 1000,
+              boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
             }}
           >
-            <Layer
-              id="route-layer"
-              type="line"
-              paint={{
-                "line-color": "#3887be",
-                "line-width": 8,
-                "line-opacity": 0.9,
-              }}
-            />
-          </Source>
+            <ul style={{ listStyleType: "none", margin: 0, padding: 0 }}>
+              <li
+                style={{ padding: "8px", cursor: "pointer" }}
+                onClick={() => handleMenuItemClick("origin")}
+              >
+                Set As Origin
+              </li>
+              <li
+                style={{ padding: "8px", cursor: "pointer" }}
+                onClick={() => handleMenuItemClick("destination")}
+              >
+                Set As Destination
+              </li>
+            </ul>
+          </div>
         )}
-      </Map>
+      </div>
     </div>
   );
 };
 
 export default App;
-
-const container = document.getElementById("root");
-const root = createRoot(container!);
-root.render(<App />);
