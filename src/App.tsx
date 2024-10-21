@@ -162,6 +162,7 @@ const App: React.FC = () => {
 
     fetchRoute();
   }, [
+    // this didn't work as expected if warning suggestion is applied. With current route in the dependency it flickers a lot since other properties of the route keep changing as well. had to be specific
     currentRoute?.origin?.coordinates,
     currentRoute?.destination?.coordinates,
   ]);
