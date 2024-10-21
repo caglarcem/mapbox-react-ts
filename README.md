@@ -1,19 +1,13 @@
 # Mapbox directions prototype
 
-* Once 2 points are drawn, shortest route and an alternative route pops up
-* Alternative path can be clickable to update the main route
-* Only 2 points available, a 3rd click replaces the nearest point
-* The points can also be dragged
+* Multipoint location
+* Allow more locations to be added
+* Drag endpoints
+* Reverse-geocoding: ability to display and change address
 
-Note: for some reason it works best when the browser is zoomed in (e.g. %400). A scaling issue to be looked at
-
-## Possible improvements
-* Scaling issue to be resolved to work with normal 100% zoom
-* Remove the 2 points constraint (it's intentional in this prototype) and allow the default behaviour of selecting multiple points
-* Ability to put multiple points on a route to help dragging the points and establishing the main route in a specific way
-
-
-![alt-text](https://github.com/caglarcem/mapbox-react-ts/blob/main/mapbox-directions.gif)
+## Next
+* Ability to display and switch to alternate routes
+* Drag to re-route
 
 # How to run
 
