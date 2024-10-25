@@ -1,6 +1,20 @@
-export interface Location {
+export interface Waypoint {
   coordinates: [number, number];
   address: string;
+}
+
+export interface CurrentRoute {
+  origin: Waypoint | null;
+  destination: Waypoint | null;
+  imaginaryPoint: [number, number] | null;
+  geometry: any;
+}
+
+export interface Route {
+  id: number;
+  origin: Waypoint;
+  destination: Waypoint;
+  geometry: any;
 }
 
 export interface ContextMenuProps {
@@ -11,17 +25,4 @@ export interface ContextMenuProps {
     lng: number;
     lat: number;
   };
-}
-
-export interface CurrentRoute {
-  origin: Location | null;
-  destination: Location | null;
-  geometry: GeoJSON.LineString | null;
-}
-
-export interface Route {
-  id: number;
-  origin: Location;
-  destination: Location;
-  geometry: GeoJSON.LineString;
 }
