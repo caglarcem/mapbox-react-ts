@@ -1,3 +1,4 @@
+import { debounce } from "lodash";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef, useState } from "react";
@@ -167,23 +168,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMouseMove = (e: MapLayerMouseEvent) => {
-    if (!isDragging) return;
-
-    e.preventDefault();
-    const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
-
-    if (currentRoute.geometry) {
-      // Snap the point to the road network
-      snapPointToRoad(lngLat).then((snappedPoint) => {
-        setCurrentRoute((prev) => ({
-          ...prev,
-          rerouteSnapPoint: snappedPoint,
-        }));
-      });
-    }
-  };
-
   const handleMouseUp = (e: MapLayerMouseEvent) => {
     if (!isDragging) return;
 
@@ -197,7 +181,7 @@ const App: React.FC = () => {
 
     if (currentRoute.geometry) {
       // Snap the point to the road network
-      snapPointToRoad(lngLat).then((snappedPoint) => {
+      snapPointToRoad(lngLat).then((snappedPoint: any) => {
         setCurrentRoute((prev) => ({
           ...prev,
           rerouteSnapPoint: snappedPoint,
@@ -226,6 +210,25 @@ const App: React.FC = () => {
 
     // If snapping fails, return the original point
     return point;
+  };
+
+  const debouncedSnapPointToRoad = debounce(snapPointToRoad, 500); // 500 ms delay
+
+  const handleMouseMove = (e: MapLayerMouseEvent) => {
+    if (!isDragging) return;
+
+    e.preventDefault();
+    const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
+
+    if (currentRoute.geometry) {
+      // Use the debounced function
+      debouncedSnapPointToRoad(lngLat)?.then((snappedPoint: any) => {
+        setCurrentRoute((prev) => ({
+          ...prev,
+          rerouteSnapPoint: snappedPoint,
+        }));
+      });
+    }
   };
 
   // Handle cursor style
