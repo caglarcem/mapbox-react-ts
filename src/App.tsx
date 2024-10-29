@@ -21,6 +21,8 @@ const mapboxDirectionsApi =
 const mapboxGeocodingApi = "https://api.mapbox.com/geocoding/v5/mapbox.places";
 
 const App: React.FC = () => {
+  const rerouteTimeout = useRef<NodeJS.Timeout | null>(null);
+
   const [contextMenu, setContextMenu] = useState<ContextMenuProps>({
     visible: false,
     x: 0,
@@ -252,61 +254,38 @@ const App: React.FC = () => {
   };
 
   // Handle dragging origin or destination
-  const handleCurrentMarkerDragEnd = async (
+  const handleCurrentMarkerDragEnd = (
     event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
     const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
-    const address = await reverseGeocode(lngLat[0], lngLat[1]);
-    if (type === "origin") {
-      setCurrentRoute((prev) => ({
-        ...prev,
-        origin: {
-          coordinates: lngLat,
-          address,
-        },
-      }));
-    } else if (type === "destination") {
-      setCurrentRoute((prev) => ({
-        ...prev,
-        destination: {
-          coordinates: lngLat,
-          address,
-        },
-      }));
+
+    // Clear any existing timeout
+    if (rerouteTimeout.current) {
+      clearTimeout(rerouteTimeout.current);
     }
-  };
 
-  // Handle dragging saved route markers
-  const handleSavedMarkerDragEnd = async (
-    event: MarkerDragEvent,
-    type: "origin" | "destination",
-    routeId: number
-  ) => {
-    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
-    const address = await reverseGeocode(lngLat[0], lngLat[1]);
-
-    // Update the specific route in the routes array
-    setRoutes((prevRoutes) =>
-      prevRoutes.map((route) => {
-        if (route.id === routeId) {
-          const updatedRoute = { ...route };
-          if (type === "origin") {
-            updatedRoute.origin = {
-              coordinates: lngLat,
-              address,
-            };
-          } else if (type === "destination") {
-            updatedRoute.destination = {
-              coordinates: lngLat,
-              address,
-            };
-          }
-          return updatedRoute;
-        }
-        return route;
-      })
-    );
+    // Set a new timeout to update the route after 2 seconds
+    rerouteTimeout.current = setTimeout(async () => {
+      const address = await reverseGeocode(lngLat[0], lngLat[1]);
+      if (type === "origin") {
+        setCurrentRoute((prev) => ({
+          ...prev,
+          origin: {
+            coordinates: lngLat,
+            address,
+          },
+        }));
+      } else if (type === "destination") {
+        setCurrentRoute((prev) => ({
+          ...prev,
+          destination: {
+            coordinates: lngLat,
+            address,
+          },
+        }));
+      }
+    }, 1000); // Delay in milliseconds
   };
 
   // Fetch route when saved route markers are dragged
@@ -551,10 +530,6 @@ const App: React.FC = () => {
               <Marker
                 longitude={route.origin.coordinates[0]}
                 latitude={route.origin.coordinates[1]}
-                draggable
-                onDragEnd={(e) =>
-                  handleSavedMarkerDragEnd(e, "origin", route.id)
-                }
               >
                 <CustomMarker type={`S-${route.id}`} />
               </Marker>
@@ -563,10 +538,6 @@ const App: React.FC = () => {
               <Marker
                 longitude={route.destination.coordinates[0]}
                 latitude={route.destination.coordinates[1]}
-                draggable
-                onDragEnd={(e) =>
-                  handleSavedMarkerDragEnd(e, "destination", route.id)
-                }
               >
                 <CustomMarker type={`E-${route.id}`} />
               </Marker>
