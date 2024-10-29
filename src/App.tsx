@@ -22,7 +22,7 @@ const mapboxDirectionsApi =
 const mapboxGeocodingApi = "https://api.mapbox.com/geocoding/v5/mapbox.places";
 
 const App: React.FC = () => {
-  const rerouteTimeout = useRef<NodeJS.Timeout | null>(null);
+  const ENABLE_ROUTE_SNAPPING = true;
 
   const [contextMenu, setContextMenu] = useState<ContextMenuProps>({
     visible: false,
@@ -163,6 +163,7 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleMouseDown = (e: MapLayerMouseEvent) => {
+    if (!ENABLE_ROUTE_SNAPPING) return;
     if (
       e.features &&
       e.features.length > 0 &&
@@ -178,6 +179,11 @@ const App: React.FC = () => {
 
   const handleMouseUp = (e: MapLayerMouseEvent) => {
     if (!isDragging) return;
+
+    if (!ENABLE_ROUTE_SNAPPING) {
+      setIsDragging(false);
+      return;
+    }
 
     e.preventDefault();
     setIsDragging(false);
@@ -202,6 +208,8 @@ const App: React.FC = () => {
   const snapPointToRoad = async (
     point: [number, number]
   ): Promise<[number, number]> => {
+    if (!ENABLE_ROUTE_SNAPPING) return point;
+
     const url = `https://api.mapbox.com/matching/v5/mapbox/walking/${point[0]},${point[1]}?access_token=${mapboxgl.accessToken}&geometries=geojson`;
 
     try {
@@ -220,10 +228,12 @@ const App: React.FC = () => {
     return point;
   };
 
-  const debouncedSnapPointToRoad = debounce(snapPointToRoad, 500); // 500 ms delay
+  const debouncedSnapPointToRoad = debounce(snapPointToRoad, 500);
 
   const handleMouseMove = (e: MapLayerMouseEvent) => {
     if (!isDragging) return;
+
+    if (!ENABLE_ROUTE_SNAPPING) return;
 
     e.preventDefault();
     const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
