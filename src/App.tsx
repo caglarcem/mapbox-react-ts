@@ -253,21 +253,46 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle dragging origin or destination
-  const handleCurrentMarkerDragEnd = (
+  const handleCurrentMarkerDrag = (
     event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
     const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
 
-    // Clear any existing timeout
+    if (type === "origin") {
+      setCurrentRoute((prev) => ({
+        ...prev,
+        origin: {
+          ...prev.origin,
+          coordinates: lngLat,
+          address: prev.origin?.address || "Unknown Address", // Provide default address
+        },
+      }));
+    } else if (type === "destination") {
+      setCurrentRoute((prev) => ({
+        ...prev,
+        destination: {
+          ...prev.destination,
+          coordinates: lngLat,
+          address: prev.destination?.address || "Unknown Address",
+        },
+      }));
+    }
+  };
+
+  // Handle dragging origin or destination
+  const handleCurrentMarkerDragEnd = (
+    event: MarkerDragEvent,
+    type: "origin" | "destination"
+  ) => {
     if (rerouteTimeout.current) {
       clearTimeout(rerouteTimeout.current);
     }
 
-    // Set a new timeout to update the route after 2 seconds
     rerouteTimeout.current = setTimeout(async () => {
+      const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
       const address = await reverseGeocode(lngLat[0], lngLat[1]);
+
       if (type === "origin") {
         setCurrentRoute((prev) => ({
           ...prev,
@@ -285,7 +310,7 @@ const App: React.FC = () => {
           },
         }));
       }
-    }, 1000); // Delay in milliseconds
+    }, 1000);
   };
 
   // Fetch route when saved route markers are dragged
@@ -457,6 +482,7 @@ const App: React.FC = () => {
               longitude={currentRoute.origin.coordinates[0]}
               latitude={currentRoute.origin.coordinates[1]}
               draggable
+              onDrag={(e) => handleCurrentMarkerDrag(e, "origin")}
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "origin")}
             >
               <CustomMarker type={`S-${currentRoute.id}`} />
@@ -469,6 +495,7 @@ const App: React.FC = () => {
               longitude={currentRoute.destination.coordinates[0]}
               latitude={currentRoute.destination.coordinates[1]}
               draggable
+              onDrag={(e) => handleCurrentMarkerDrag(e, "destination")}
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "destination")}
             >
               <CustomMarker type={`E-${currentRoute.id}`} />
