@@ -4,9 +4,10 @@ export interface Waypoint {
 }
 
 export interface CurrentRoute {
+  id: number;
   origin: Waypoint | null;
   destination: Waypoint | null;
-  imaginaryPoint: [number, number] | null;
+  rerouteSnapPoint: [number, number] | null;
   geometry: any;
 }
 

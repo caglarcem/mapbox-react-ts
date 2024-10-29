@@ -17,7 +17,7 @@ import CustomMarker from "./Marker";
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_API_TOKEN || "";
 
 const mapboxDirectionsApi =
-  "https://api.mapbox.com/directions/v5/mapbox/driving";
+  "https://api.mapbox.com/directions/v5/mapbox/walking";
 const mapboxGeocodingApi = "https://api.mapbox.com/geocoding/v5/mapbox.places";
 
 const App: React.FC = () => {
@@ -28,11 +28,12 @@ const App: React.FC = () => {
     lngLat: { lng: 0, lat: 0 },
   });
 
-  const [currentRoute, setCurrentRoute] = useState<CurrentRoute | null>({
+  const [currentRoute, setCurrentRoute] = useState<CurrentRoute>({
     origin: null,
     destination: null,
-    imaginaryPoint: null,
+    rerouteSnapPoint: null,
     geometry: null,
+    id: 0,
   });
 
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -54,7 +55,7 @@ const App: React.FC = () => {
   };
 
   // Map click
-  const handleMapClick = async (e: MapLayerMouseEvent) => {
+  const handleMapClick = (e: MapLayerMouseEvent) => {
     if (contextMenu.visible) {
       setContextMenu({ ...contextMenu, visible: false });
     }
@@ -67,7 +68,7 @@ const App: React.FC = () => {
 
     if (action === "origin") {
       setCurrentRoute((prev) => ({
-        ...prev!,
+        ...prev,
         origin: {
           coordinates: [lngLat.lng, lngLat.lat],
           address,
@@ -75,7 +76,7 @@ const App: React.FC = () => {
       }));
     } else if (action === "destination") {
       setCurrentRoute((prev) => ({
-        ...prev!,
+        ...prev,
         destination: {
           coordinates: [lngLat.lng, lngLat.lat],
           address,
@@ -103,13 +104,15 @@ const App: React.FC = () => {
     }
   };
 
-  // Fetch route when origin, destination, or imaginaryPoint changes
+  // Fetch route when origin, destination, or rerouteSnapPoint changes
   useEffect(() => {
     const fetchRoute = async () => {
-      if (currentRoute && currentRoute.origin && currentRoute.destination) {
+      if (currentRoute.origin && currentRoute.destination) {
         const coordinates = [
           currentRoute.origin.coordinates,
-          ...(currentRoute.imaginaryPoint ? [currentRoute.imaginaryPoint] : []),
+          ...(currentRoute.rerouteSnapPoint
+            ? [currentRoute.rerouteSnapPoint]
+            : []),
           currentRoute.destination.coordinates,
         ];
 
@@ -128,7 +131,7 @@ const App: React.FC = () => {
             const geometry = data.routes[0].geometry;
 
             setCurrentRoute((prev) => ({
-              ...prev!,
+              ...prev,
               geometry,
             }));
           }
@@ -140,9 +143,9 @@ const App: React.FC = () => {
 
     fetchRoute();
   }, [
-    currentRoute?.origin?.coordinates,
-    currentRoute?.destination?.coordinates,
-    currentRoute?.imaginaryPoint,
+    currentRoute.origin?.coordinates,
+    currentRoute.destination?.coordinates,
+    currentRoute.rerouteSnapPoint,
   ]);
 
   // Handle dragging the route line
@@ -152,7 +155,7 @@ const App: React.FC = () => {
     if (
       e.features &&
       e.features.length > 0 &&
-      e.features[0].layer?.id === "current-route-line"
+      e.features[0].layer?.id === `route-line-${currentRoute.id}`
     ) {
       e.preventDefault();
       setIsDragging(true);
@@ -168,12 +171,12 @@ const App: React.FC = () => {
     e.preventDefault();
     const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
 
-    if (currentRoute && currentRoute.geometry) {
+    if (currentRoute.geometry) {
       // Snap the point to the road network
       snapPointToRoad(lngLat).then((snappedPoint) => {
         setCurrentRoute((prev) => ({
-          ...prev!,
-          imaginaryPoint: snappedPoint,
+          ...prev,
+          rerouteSnapPoint: snappedPoint,
         }));
       });
     }
@@ -190,12 +193,12 @@ const App: React.FC = () => {
 
     const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
 
-    if (currentRoute && currentRoute.geometry) {
+    if (currentRoute.geometry) {
       // Snap the point to the road network
       snapPointToRoad(lngLat).then((snappedPoint) => {
         setCurrentRoute((prev) => ({
-          ...prev!,
-          imaginaryPoint: snappedPoint,
+          ...prev,
+          rerouteSnapPoint: snappedPoint,
         }));
       });
     }
@@ -228,7 +231,7 @@ const App: React.FC = () => {
     if (
       e.features &&
       e.features.length > 0 &&
-      e.features[0].layer?.id === "current-route-line"
+      e.features[0].layer?.id === `route-line-${currentRoute.id}`
     ) {
       if (mapRef.current) {
         mapRef.current.getCanvas().style.cursor = "grab";
@@ -240,7 +243,7 @@ const App: React.FC = () => {
     if (
       e.features &&
       e.features.length > 0 &&
-      e.features[0].layer?.id === "current-route-line"
+      e.features[0].layer?.id === `route-line-${currentRoute.id}`
     ) {
       if (!isDragging && mapRef.current) {
         mapRef.current.getCanvas().style.cursor = "";
@@ -250,31 +253,99 @@ const App: React.FC = () => {
 
   // Handle dragging origin or destination
   const handleCurrentMarkerDragEnd = async (
-    event: MarkerDragEvent, // Use the correct type
+    event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
     const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
     const address = await reverseGeocode(lngLat[0], lngLat[1]);
-    if (currentRoute) {
-      if (type === "origin") {
-        setCurrentRoute((prev) => ({
-          ...prev!,
-          origin: {
-            coordinates: lngLat,
-            address,
-          },
-        }));
-      } else if (type === "destination") {
-        setCurrentRoute((prev) => ({
-          ...prev!,
-          destination: {
-            coordinates: lngLat,
-            address,
-          },
-        }));
-      }
+    if (type === "origin") {
+      setCurrentRoute((prev) => ({
+        ...prev,
+        origin: {
+          coordinates: lngLat,
+          address,
+        },
+      }));
+    } else if (type === "destination") {
+      setCurrentRoute((prev) => ({
+        ...prev,
+        destination: {
+          coordinates: lngLat,
+          address,
+        },
+      }));
     }
   };
+
+  // Handle dragging saved route markers
+  const handleSavedMarkerDragEnd = async (
+    event: MarkerDragEvent,
+    type: "origin" | "destination",
+    routeId: number
+  ) => {
+    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
+    const address = await reverseGeocode(lngLat[0], lngLat[1]);
+
+    // Update the specific route in the routes array
+    setRoutes((prevRoutes) =>
+      prevRoutes.map((route) => {
+        if (route.id === routeId) {
+          const updatedRoute = { ...route };
+          if (type === "origin") {
+            updatedRoute.origin = {
+              coordinates: lngLat,
+              address,
+            };
+          } else if (type === "destination") {
+            updatedRoute.destination = {
+              coordinates: lngLat,
+              address,
+            };
+          }
+          return updatedRoute;
+        }
+        return route;
+      })
+    );
+  };
+
+  // Fetch route when saved route markers are dragged
+  useEffect(() => {
+    const updateSavedRoutes = async () => {
+      for (const route of routes) {
+        const coordinates = [
+          route.origin.coordinates,
+          route.destination.coordinates,
+        ];
+
+        const coordinatesString = coordinates
+          .map((coord) => `${coord[0]},${coord[1]}`)
+          .join(";");
+
+        const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (data.routes && data.routes.length > 0) {
+            const geometry = data.routes[0].geometry;
+
+            // Update the route geometry
+            setRoutes((prevRoutes) =>
+              prevRoutes.map((r) =>
+                r.id === route.id ? { ...r, geometry } : r
+              )
+            );
+          }
+        } catch (error) {
+          console.error("Error updating saved route:", error);
+        }
+      }
+    };
+
+    updateSavedRoutes();
+  }, [routes]);
 
   return (
     <div style={{ height: "100vh", display: "flex" }}>
@@ -298,7 +369,7 @@ const App: React.FC = () => {
                   value={currentRoute.origin.address}
                   onSelect={(address, coords) => {
                     setCurrentRoute((prev) => ({
-                      ...prev!,
+                      ...prev,
                       origin: {
                         coordinates: coords,
                         address,
@@ -315,7 +386,7 @@ const App: React.FC = () => {
                   value={currentRoute.destination.address}
                   onSelect={(address, coords) => {
                     setCurrentRoute((prev) => ({
-                      ...prev!,
+                      ...prev,
                       destination: {
                         coordinates: coords,
                         address,
@@ -328,32 +399,32 @@ const App: React.FC = () => {
             <button
               onClick={() => {
                 if (
-                  currentRoute &&
                   currentRoute.origin &&
                   currentRoute.destination &&
                   currentRoute.geometry
                 ) {
+                  const newRouteId = routeCounter;
                   setRoutes([
                     ...routes,
                     {
-                      id: routeCounter,
+                      id: newRouteId,
                       origin: currentRoute.origin,
                       destination: currentRoute.destination,
                       geometry: currentRoute.geometry,
                     },
                   ]);
                   setCurrentRoute({
+                    id: newRouteId + 1,
                     origin: null,
                     destination: null,
-                    imaginaryPoint: null,
+                    rerouteSnapPoint: null,
                     geometry: null,
                   });
-                  setRouteCounter(routeCounter + 1);
+                  setRouteCounter(newRouteId + 1);
                 }
               }}
               disabled={
                 !(
-                  currentRoute &&
                   currentRoute.origin &&
                   currentRoute.destination &&
                   currentRoute.geometry
@@ -362,6 +433,20 @@ const App: React.FC = () => {
             >
               Save Route
             </button>
+          </div>
+        )}
+
+        {/* Saved Routes */}
+        {routes.length > 0 && (
+          <div>
+            <h3>Saved Routes</h3>
+            {routes.map((route) => (
+              <div key={route.id}>
+                <p>Route {route.id}</p>
+                <p>From: {route.origin.address}</p>
+                <p>To: {route.destination.address}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -380,7 +465,7 @@ const App: React.FC = () => {
           onClick={handleMapClick}
           style={{ width: "100%", height: "100%" }}
           mapboxAccessToken={mapboxgl.accessToken}
-          interactiveLayerIds={["current-route-line"]}
+          interactiveLayerIds={[`route-line-${currentRoute.id}`]}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseDown={handleMouseDown}
@@ -388,33 +473,33 @@ const App: React.FC = () => {
           onMouseLeave={handleMouseLeave}
         >
           {/* Current origin */}
-          {currentRoute && currentRoute.origin && (
+          {currentRoute.origin && (
             <Marker
               longitude={currentRoute.origin.coordinates[0]}
               latitude={currentRoute.origin.coordinates[1]}
               draggable
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "origin")}
             >
-              <CustomMarker type="origin" />
+              <CustomMarker type={`O-${currentRoute.id}`} />
             </Marker>
           )}
 
           {/* Current destination */}
-          {currentRoute && currentRoute.destination && (
+          {currentRoute.destination && (
             <Marker
               longitude={currentRoute.destination.coordinates[0]}
               latitude={currentRoute.destination.coordinates[1]}
               draggable
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "destination")}
             >
-              <CustomMarker type="destination" />
+              <CustomMarker type={`D-${currentRoute.id}`} />
             </Marker>
           )}
 
           {/* Current Route Line */}
-          {currentRoute && currentRoute.geometry && (
+          {currentRoute.geometry && (
             <Source
-              id="current-route"
+              id={`route-${currentRoute.id}`}
               type="geojson"
               data={{
                 type: "Feature",
@@ -422,7 +507,7 @@ const App: React.FC = () => {
               }}
             >
               <Layer
-                id="current-route-line"
+                id={`route-line-${currentRoute.id}`}
                 type="line"
                 paint={{
                   "line-color": "#3887be",
@@ -435,6 +520,58 @@ const App: React.FC = () => {
               />
             </Source>
           )}
+
+          {/* Saved Routes */}
+          {routes.map((route) => (
+            <React.Fragment key={`route-${route.id}`}>
+              {/* Route Line */}
+              <Source
+                id={`route-${route.id}`}
+                type="geojson"
+                data={{
+                  type: "Feature",
+                  geometry: route.geometry,
+                }}
+              >
+                <Layer
+                  id={`route-line-${route.id}`}
+                  type="line"
+                  paint={{
+                    "line-color": "#888",
+                    "line-width": 4,
+                  }}
+                  layout={{
+                    "line-cap": "round",
+                    "line-join": "round",
+                  }}
+                />
+              </Source>
+
+              {/* Origin Marker */}
+              <Marker
+                longitude={route.origin.coordinates[0]}
+                latitude={route.origin.coordinates[1]}
+                draggable
+                onDragEnd={(e) =>
+                  handleSavedMarkerDragEnd(e, "origin", route.id)
+                }
+              >
+                <CustomMarker type={`O-${route.id}`} />
+              </Marker>
+
+              {/* Destination Marker */}
+              <Marker
+                longitude={route.destination.coordinates[0]}
+                latitude={route.destination.coordinates[1]}
+                draggable
+                onDragEnd={(e) =>
+                  handleSavedMarkerDragEnd(e, "destination", route.id)
+                }
+              >
+                <CustomMarker type={`D-${route.id}`} />
+              </Marker>
+            </React.Fragment>
+          ))}
         </Map>
 
         {/* Context menu */}
