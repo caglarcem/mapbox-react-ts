@@ -2,7 +2,7 @@ import { debounce } from "lodash";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef, useState } from "react";
-import Map, {
+import MapGL, {
   Layer,
   MapLayerMouseEvent,
   MapMouseEvent,
@@ -41,6 +41,7 @@ const App: React.FC = () => {
 
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeCounter, setRouteCounter] = useState<number>(1);
+  const reverseGeocodeCache = new Map<string, string>();
 
   const mapRef = useRef<MapRef | null>(null);
 
@@ -92,12 +93,19 @@ const App: React.FC = () => {
 
   // Reverse geocode to get address from coordinates
   const reverseGeocode = async (lng: number, lat: number) => {
+    const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+    if (reverseGeocodeCache.has(key)) {
+      return reverseGeocodeCache.get(key);
+    }
+
     const url = `${mapboxGeocodingApi}/${lng},${lat}.json?access_token=${mapboxgl.accessToken}`;
     try {
       const response = await fetch(url);
       const data = await response.json();
       if (data?.features.length > 0) {
-        return data.features[0].place_name;
+        const address = data.features[0].place_name;
+        reverseGeocodeCache.set(key, address);
+        return address;
       } else {
         return "Unknown Location";
       }
@@ -268,7 +276,7 @@ const App: React.FC = () => {
         origin: {
           ...prev.origin,
           coordinates: lngLat,
-          address: prev.origin?.address || "Unknown Address", // Provide default address
+          address: prev.origin?.address || "Unknown Address",
         },
       }));
     } else if (type === "destination") {
@@ -283,37 +291,75 @@ const App: React.FC = () => {
     }
   };
 
+  const fetchRoute = async () => {
+    if (currentRoute.origin && currentRoute.destination) {
+      const coordinates = [
+        currentRoute.origin.coordinates,
+        ...(currentRoute.rerouteSnapPoint
+          ? [currentRoute.rerouteSnapPoint]
+          : []),
+        currentRoute.destination.coordinates,
+      ];
+
+      const coordinatesString = coordinates
+        .map((coord) => `${coord[0]},${coord[1]}`)
+        .join(";");
+
+      // Use the 'continue_straight' parameter to avoid U-turns
+      const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.routes && data.routes.length > 0) {
+          const geometry = data.routes[0].geometry;
+
+          setCurrentRoute((prev) => ({
+            ...prev,
+            geometry,
+          }));
+        }
+      } catch (error) {
+        console.error("Error fetching route:", error);
+      }
+    }
+  };
+
+  const debouncedUpdateRoute = debounce(
+    async (lngLat: [number, number], type: "origin" | "destination") => {
+      const address = await reverseGeocode(lngLat[0], lngLat[1]);
+
+      setCurrentRoute((prev) => {
+        const updatedWaypoint = {
+          coordinates: lngLat,
+          address,
+        };
+
+        let newCurrentRoute = { ...prev };
+        if (type === "origin") {
+          newCurrentRoute.origin = updatedWaypoint;
+        } else if (type === "destination") {
+          newCurrentRoute.destination = updatedWaypoint;
+        }
+        return newCurrentRoute;
+      });
+
+      // Fetch the new route after updating the origin/destination
+      fetchRoute();
+    },
+    1000 // Delay in milliseconds
+  );
+
   // Handle dragging origin or destination
   const handleCurrentMarkerDragEnd = (
     event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
-    if (rerouteTimeout.current) {
-      clearTimeout(rerouteTimeout.current);
-    }
+    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
 
-    rerouteTimeout.current = setTimeout(async () => {
-      const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
-      const address = await reverseGeocode(lngLat[0], lngLat[1]);
-
-      if (type === "origin") {
-        setCurrentRoute((prev) => ({
-          ...prev,
-          origin: {
-            coordinates: lngLat,
-            address,
-          },
-        }));
-      } else if (type === "destination") {
-        setCurrentRoute((prev) => ({
-          ...prev,
-          destination: {
-            coordinates: lngLat,
-            address,
-          },
-        }));
-      }
-    }, 1000);
+    // Call the debounced function
+    debouncedUpdateRoute(lngLat, type);
   };
 
   // Fetch route when saved route markers are dragged
@@ -460,7 +506,7 @@ const App: React.FC = () => {
 
       {/* Map */}
       <div style={{ flexGrow: 1, position: "relative" }}>
-        <Map
+        <MapGL
           ref={mapRef}
           initialViewState={{
             longitude: 153.0251,
@@ -573,7 +619,7 @@ const App: React.FC = () => {
               </Marker>
             </React.Fragment>
           ))}
-        </Map>
+        </MapGL>
 
         {/* Context menu */}
         {contextMenu.visible && (
