@@ -456,8 +456,8 @@ const App: React.FC = () => {
         <Map
           ref={mapRef}
           initialViewState={{
-            longitude: -122.4376,
-            latitude: 37.7577,
+            longitude: 153.0251,
+            latitude: -27.4698,
             zoom: 12,
           }}
           mapStyle="mapbox://styles/mapbox/streets-v11"
