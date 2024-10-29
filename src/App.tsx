@@ -208,7 +208,7 @@ const App: React.FC = () => {
   const snapPointToRoad = async (
     point: [number, number]
   ): Promise<[number, number]> => {
-    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${point[0]},${point[1]}?access_token=${mapboxgl.accessToken}&geometries=geojson`;
+    const url = `https://api.mapbox.com/matching/v5/mapbox/walking/${point[0]},${point[1]}?access_token=${mapboxgl.accessToken}&geometries=geojson`;
 
     try {
       const response = await fetch(url);
