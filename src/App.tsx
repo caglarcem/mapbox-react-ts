@@ -480,7 +480,7 @@ const App: React.FC = () => {
               draggable
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "origin")}
             >
-              <CustomMarker type={`O-${currentRoute.id}`} />
+              <CustomMarker type={`S-${currentRoute.id}`} />
             </Marker>
           )}
 
@@ -492,7 +492,7 @@ const App: React.FC = () => {
               draggable
               onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "destination")}
             >
-              <CustomMarker type={`D-${currentRoute.id}`} />
+              <CustomMarker type={`E-${currentRoute.id}`} />
             </Marker>
           )}
 
@@ -556,7 +556,7 @@ const App: React.FC = () => {
                   handleSavedMarkerDragEnd(e, "origin", route.id)
                 }
               >
-                <CustomMarker type={`O-${route.id}`} />
+                <CustomMarker type={`S-${route.id}`} />
               </Marker>
 
               {/* Destination Marker */}
@@ -568,7 +568,7 @@ const App: React.FC = () => {
                   handleSavedMarkerDragEnd(e, "destination", route.id)
                 }
               >
-                <CustomMarker type={`D-${route.id}`} />
+                <CustomMarker type={`E-${route.id}`} />
               </Marker>
             </React.Fragment>
           ))}

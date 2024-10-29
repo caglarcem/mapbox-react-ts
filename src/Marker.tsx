@@ -7,7 +7,7 @@ interface CustomMarkerProps {
 const CustomMarker: React.FC<CustomMarkerProps> = ({ type }) => {
   let color = "blue";
   if (type.startsWith("S")) color = "green";
-  else if (type.startsWith("E")) color = "red";
+  else if (type.startsWith("E")) color = "maroon";
 
   return (
     <div
