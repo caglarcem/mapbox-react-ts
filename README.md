@@ -4,8 +4,6 @@
 * Allow more locations to be added
 * Drag endpoints
 * Reverse-geocoding: ability to display and change address
-
-## Next
 * Ability to display and switch to alternate routes
 * Drag to re-route
 
