@@ -12,7 +12,7 @@ import MapGL, {
   Source,
 } from "react-map-gl";
 import AddressEntry from "./AddressEntry";
-import { ContextMenuProps, CurrentRoute, Route } from "./interfaces";
+import { ContextMenuProps, CurrentRoute, Route, Waypoint } from "./interfaces";
 import CustomMarker from "./Marker";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_API_TOKEN || "";
@@ -41,11 +41,13 @@ const App: React.FC = () => {
 
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeCounter, setRouteCounter] = useState<number>(1);
+  // Caching reverse geocode in-memory in order to reduce the number of calls to the api
+  // This avoids exceeding the rate limit
   const reverseGeocodeCache = new Map<string, string>();
 
   const mapRef = useRef<MapRef | null>(null);
 
-  // Right-click context menu
+  // Right-click context menu which records the point and opens up for setting origin or destination
   const handleContextMenu = (e: MapMouseEvent) => {
     e.preventDefault();
 
@@ -58,7 +60,8 @@ const App: React.FC = () => {
     });
   };
 
-  // Map click
+  // Map click which only closes the context menu at this stage
+  // TODO we will add setting single point later on
   const handleMapClick = (e: MapLayerMouseEvent) => {
     if (contextMenu.visible) {
       setContextMenu({ ...contextMenu, visible: false });
@@ -92,6 +95,7 @@ const App: React.FC = () => {
   };
 
   // Reverse geocode to get address from coordinates
+  // The address isthen updated in the left panel where the addresses match the origin and destination dynamically
   const reverseGeocode = async (lng: number, lat: number) => {
     const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
     if (reverseGeocodeCache.has(key)) {
@@ -104,6 +108,8 @@ const App: React.FC = () => {
       const data = await response.json();
       if (data?.features.length > 0) {
         const address = data.features[0].place_name;
+        // Cached if the same address is hit back again.
+        // This can be common since the user is likely to be working on the same area.
         reverseGeocodeCache.set(key, address);
         return address;
       } else {
@@ -131,7 +137,8 @@ const App: React.FC = () => {
           .map((coord) => `${coord[0]},${coord[1]}`)
           .join(";");
 
-        // Use the 'continue_straight' parameter to avoid U-turns
+        // Use the 'continue_straight' parameter to avoid U-turns - these look like double dips on the same route
+        // TODO This doesn't completely get rid of turning back from different roads on the same route (opposite road). But prevents the other lane on the same road.
         const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&continue_straight=true&access_token=${mapboxgl.accessToken}`;
 
         try {
@@ -153,20 +160,24 @@ const App: React.FC = () => {
     };
 
     fetchRoute();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    // The suggestion of the warning here (disabled) doesn't work because there are other parameters in the origin and destination that changes dynamically.
+    // Which results in flickering and flaky behaviour. So specifying ecah property in the dependencies.
     currentRoute.origin?.coordinates,
     currentRoute.destination?.coordinates,
     currentRoute.rerouteSnapPoint,
   ]);
 
-  // Handle dragging the route line
+  // Handle dragging the route line (route-snapping) which will re-route
   const [isDragging, setIsDragging] = useState(false);
 
   const handleMouseDown = (e: MapLayerMouseEvent) => {
     if (!ENABLE_ROUTE_SNAPPING) return;
+    // If the pointer is clicked on a route line, sets dragging to true (enables dragging behaviour)
     if (
       e.features &&
-      e.features.length > 0 &&
+      e.features?.length > 0 &&
       e.features[0].layer?.id === `route-line-${currentRoute.id}`
     ) {
       e.preventDefault();
@@ -177,6 +188,8 @@ const App: React.FC = () => {
     }
   };
 
+  // Mouse is released, sets dragging to false (disables dragging behaviour)
+  //    and if the pointer is landed on a road, re-routes (updates) the current route
   const handleMouseUp = (e: MapLayerMouseEvent) => {
     if (!isDragging) return;
 
@@ -196,6 +209,7 @@ const App: React.FC = () => {
     if (currentRoute.geometry) {
       // Snap the point to the road network
       snapPointToRoad(lngLat).then((snappedPoint: any) => {
+        // Update the snapped point
         setCurrentRoute((prev) => ({
           ...prev,
           rerouteSnapPoint: snappedPoint,
@@ -228,8 +242,10 @@ const App: React.FC = () => {
     return point;
   };
 
+  // Debounce to avoid excessive api calls and rate limit errors
   const debouncedSnapPointToRoad = debounce(snapPointToRoad, 500);
 
+  // Re routing the current line as the mouse is moving
   const handleMouseMove = (e: MapLayerMouseEvent) => {
     if (!isDragging) return;
 
@@ -249,7 +265,8 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle cursor style
+  // Handle cursor style by changing it to a grab icon to indicate succesful snap
+  // TODO this doesn't work all the time for some reason (graps but doesn't change the icon)
   const handleMouseEnter = (e: MapLayerMouseEvent) => {
     if (
       e.features &&
@@ -262,6 +279,7 @@ const App: React.FC = () => {
     }
   };
 
+  // Restore the mouse style
   const handleMouseLeave = (e: MapLayerMouseEvent) => {
     if (
       e.features &&
@@ -274,6 +292,7 @@ const App: React.FC = () => {
     }
   };
 
+  // Re-routing when the origin or destination marker is dragged around
   const handleCurrentMarkerDrag = (
     event: MarkerDragEvent,
     type: "origin" | "destination"
@@ -282,6 +301,7 @@ const App: React.FC = () => {
 
     if (type === "origin") {
       setCurrentRoute((prev) => ({
+        // The address textbox on the left panel is also updated as coordinates change
         ...prev,
         origin: {
           ...prev.origin,
@@ -318,11 +338,13 @@ const App: React.FC = () => {
       // Use the 'continue_straight' parameter to avoid U-turns
       const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&continue_straight=true&access_token=${mapboxgl.accessToken}`;
 
+      // Fetch the route with the given coordinates
       try {
         const response = await fetch(url);
         const data = await response.json();
 
         if (data.routes && data.routes.length > 0) {
+          // Single route with the geometry
           const geometry = data.routes[0].geometry;
 
           setCurrentRoute((prev) => ({
@@ -336,12 +358,13 @@ const App: React.FC = () => {
     }
   };
 
+  // Debouncing to stabilise the route updates
   const debouncedUpdateRoute = debounce(
     async (lngLat: [number, number], type: "origin" | "destination") => {
       const address = await reverseGeocode(lngLat[0], lngLat[1]);
 
       setCurrentRoute((prev) => {
-        const updatedWaypoint = {
+        const updatedWaypoint: Waypoint = {
           coordinates: lngLat,
           address,
         };
@@ -358,7 +381,7 @@ const App: React.FC = () => {
       // Fetch the new route after updating the origin/destination
       fetchRoute();
     },
-    1000 // Delay in milliseconds
+    1000 // TODO Delay in milliseconds, this was used to be 2 but that was too long. Considering a bit less than a second (feedback first)
   );
 
   // Handle dragging origin or destination
@@ -372,47 +395,9 @@ const App: React.FC = () => {
     debouncedUpdateRoute(lngLat, type);
   };
 
-  // Fetch route when saved route markers are dragged
-  useEffect(() => {
-    const updateSavedRoutes = async () => {
-      for (const route of routes) {
-        const coordinates = [
-          route.origin.coordinates,
-          route.destination.coordinates,
-        ];
-
-        const coordinatesString = coordinates
-          .map((coord) => `${coord[0]},${coord[1]}`)
-          .join(";");
-
-        const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
-
-        try {
-          const response = await fetch(url);
-          const data = await response.json();
-
-          if (data.routes && data.routes.length > 0) {
-            const geometry = data.routes[0].geometry;
-
-            // Update the route geometry
-            setRoutes((prevRoutes) =>
-              prevRoutes.map((r) =>
-                r.id === route.id ? { ...r, geometry } : r
-              )
-            );
-          }
-        } catch (error) {
-          console.error("Error updating saved route:", error);
-        }
-      }
-    };
-
-    updateSavedRoutes();
-  }, [routes]);
-
   return (
     <div style={{ height: "100vh", display: "flex" }}>
-      {/* Left side */}
+      {/* Left side - address text boxes for the current route and saved route list*/}
       <div
         style={{
           width: "300px",
@@ -515,6 +500,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Map */}
+      {/* Clicking & dragging functionality, marker and route dispplays */}
       <div style={{ flexGrow: 1, position: "relative" }}>
         <MapGL
           ref={mapRef}
