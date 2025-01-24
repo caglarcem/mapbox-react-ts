@@ -12,7 +12,7 @@ import MapGL, {
   Source,
 } from "react-map-gl";
 import AddressEntry from "./AddressEntry";
-import { ContextMenuProps, CurrentRoute, Route, Waypoint } from "./interfaces";
+import { ContextMenuProps, CurrentRoute, Route } from "./interfaces";
 import CustomMarker from "./Marker";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_API_TOKEN || "";
@@ -22,8 +22,6 @@ const mapboxDirectionsApi =
 const mapboxGeocodingApi = "https://api.mapbox.com/geocoding/v5/mapbox.places";
 
 const App: React.FC = () => {
-  const ENABLE_ROUTE_SNAPPING = true;
-
   const [contextMenu, setContextMenu] = useState<ContextMenuProps>({
     visible: false,
     x: 0,
@@ -173,123 +171,47 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleMouseDown = (e: MapLayerMouseEvent) => {
-    if (!ENABLE_ROUTE_SNAPPING) return;
     // If the pointer is clicked on a route line, sets dragging to true (enables dragging behaviour)
-    if (
-      e.features &&
-      e.features?.length > 0 &&
-      e.features[0].layer?.id === `route-line-${currentRoute.id}`
-    ) {
-      e.preventDefault();
-      setIsDragging(true);
-      if (mapRef.current) {
-        mapRef.current.getCanvas().style.cursor = "grabbing";
-      }
-    }
   };
 
   // Mouse is released, sets dragging to false (disables dragging behaviour)
   //    and if the pointer is landed on a road, re-routes (updates) the current route
   const handleMouseUp = (e: MapLayerMouseEvent) => {
-    if (!isDragging) return;
-
-    if (!ENABLE_ROUTE_SNAPPING) {
-      setIsDragging(false);
-      return;
-    }
-
-    e.preventDefault();
-    setIsDragging(false);
-    if (mapRef.current) {
-      mapRef.current.getCanvas().style.cursor = "";
-    }
-
-    const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
-
-    if (currentRoute.geometry) {
-      // Snap the point to the road network
-      snapPointToRoad(lngLat).then((snappedPoint: any) => {
-        // Update the snapped point
-        setCurrentRoute((prev) => ({
-          ...prev,
-          rerouteSnapPoint: snappedPoint,
-        }));
-      });
-    }
+    //
   };
 
   // Snap point to road network using Map Matching API
   const snapPointToRoad = async (
     point: [number, number]
   ): Promise<[number, number]> => {
-    if (!ENABLE_ROUTE_SNAPPING) return point;
-
-    const url = `https://api.mapbox.com/matching/v5/mapbox/walking/${point[0]},${point[1]}?access_token=${mapboxgl.accessToken}&geometries=geojson`;
-
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.matchings && data.matchings.length > 0) {
-        const snappedPoint = data.matchings[0].geometry.coordinates[0];
-        return snappedPoint as [number, number];
-      }
-    } catch (error) {
-      console.error("Error snapping point to road:", error);
-    }
-
     // If snapping fails, return the original point
     return point;
   };
 
   // Debounce to avoid excessive api calls and rate limit errors
-  const debouncedSnapPointToRoad = debounce(snapPointToRoad, 500);
+  // This avoids exceeding the rate limit
+  // The pointer is updated as the user is still dragging the route
+  // The re-routing is triggered as the user moves the pointer on the map
+  // This ensures that we don't call the snapping api excessively
+  // This is invoked on mouse move
+  const debouncedSnapPointToRoad = () => {
+    //
+  };
 
   // Re routing the current line as the mouse is moving
   const handleMouseMove = (e: MapLayerMouseEvent) => {
-    if (!isDragging) return;
-
-    if (!ENABLE_ROUTE_SNAPPING) return;
-
-    e.preventDefault();
-    const lngLat = [e.lngLat.lng, e.lngLat.lat] as [number, number];
-
-    if (currentRoute.geometry) {
-      // Use the debounced function
-      debouncedSnapPointToRoad(lngLat)?.then((snappedPoint: any) => {
-        setCurrentRoute((prev) => ({
-          ...prev,
-          rerouteSnapPoint: snappedPoint,
-        }));
-      });
-    }
+    //
   };
 
   // Handle cursor style by changing it to a grab icon to indicate succesful snap
   // TODO this doesn't work all the time for some reason (graps but doesn't change the icon)
   const handleMouseEnter = (e: MapLayerMouseEvent) => {
-    if (
-      e.features &&
-      e.features.length > 0 &&
-      e.features[0].layer?.id === `route-line-${currentRoute.id}`
-    ) {
-      if (mapRef.current) {
-        mapRef.current.getCanvas().style.cursor = "grab";
-      }
-    }
+    //
   };
 
   // Restore the mouse style
   const handleMouseLeave = (e: MapLayerMouseEvent) => {
-    if (
-      e.features &&
-      e.features.length > 0 &&
-      e.features[0].layer?.id === `route-line-${currentRoute.id}`
-    ) {
-      if (!isDragging && mapRef.current) {
-        mapRef.current.getCanvas().style.cursor = "";
-      }
-    }
+    //
   };
 
   // Re-routing when the origin or destination marker is dragged around
@@ -297,28 +219,7 @@ const App: React.FC = () => {
     event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
-    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
-
-    if (type === "origin") {
-      setCurrentRoute((prev) => ({
-        // The address textbox on the left panel is also updated as coordinates change
-        ...prev,
-        origin: {
-          ...prev.origin,
-          coordinates: lngLat,
-          address: prev.origin?.address || "Unknown Address",
-        },
-      }));
-    } else if (type === "destination") {
-      setCurrentRoute((prev) => ({
-        ...prev,
-        destination: {
-          ...prev.destination,
-          coordinates: lngLat,
-          address: prev.destination?.address || "Unknown Address",
-        },
-      }));
-    }
+    // The address textbox on the left panel is also updated as coordinates change
   };
 
   const fetchRoute = async () => {
@@ -361,25 +262,7 @@ const App: React.FC = () => {
   // Debouncing to stabilise the route updates
   const debouncedUpdateRoute = debounce(
     async (lngLat: [number, number], type: "origin" | "destination") => {
-      const address = await reverseGeocode(lngLat[0], lngLat[1]);
-
-      setCurrentRoute((prev) => {
-        const updatedWaypoint: Waypoint = {
-          coordinates: lngLat,
-          address,
-        };
-
-        let newCurrentRoute = { ...prev };
-        if (type === "origin") {
-          newCurrentRoute.origin = updatedWaypoint;
-        } else if (type === "destination") {
-          newCurrentRoute.destination = updatedWaypoint;
-        }
-        return newCurrentRoute;
-      });
-
-      // Fetch the new route after updating the origin/destination
-      fetchRoute();
+      //
     },
     1000 // TODO Delay in milliseconds, this was used to be 2 but that was too long. Considering a bit less than a second (feedback first)
   );
@@ -389,10 +272,7 @@ const App: React.FC = () => {
     event: MarkerDragEvent,
     type: "origin" | "destination"
   ) => {
-    const lngLat = [event.lngLat.lng, event.lngLat.lat] as [number, number];
-
-    // Call the debounced function
-    debouncedUpdateRoute(lngLat, type);
+    //
   };
 
   return (
@@ -514,21 +394,12 @@ const App: React.FC = () => {
           onClick={handleMapClick}
           style={{ width: "100%", height: "100%" }}
           mapboxAccessToken={mapboxgl.accessToken}
-          interactiveLayerIds={[`route-line-${currentRoute.id}`]}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseDown={handleMouseDown}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
         >
           {/* Current origin */}
           {currentRoute.origin && (
             <Marker
               longitude={currentRoute.origin.coordinates[0]}
               latitude={currentRoute.origin.coordinates[1]}
-              draggable
-              onDrag={(e) => handleCurrentMarkerDrag(e, "origin")}
-              onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "origin")}
             >
               <CustomMarker type={`S-${currentRoute.id}`} />
             </Marker>
@@ -539,9 +410,6 @@ const App: React.FC = () => {
             <Marker
               longitude={currentRoute.destination.coordinates[0]}
               latitude={currentRoute.destination.coordinates[1]}
-              draggable
-              onDrag={(e) => handleCurrentMarkerDrag(e, "destination")}
-              onDragEnd={(e) => handleCurrentMarkerDragEnd(e, "destination")}
             >
               <CustomMarker type={`E-${currentRoute.id}`} />
             </Marker>
