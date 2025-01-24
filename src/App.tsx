@@ -1,4 +1,3 @@
-import { debounce } from "lodash";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef, useState } from "react";
@@ -8,7 +7,6 @@ import MapGL, {
   MapMouseEvent,
   MapRef,
   Marker,
-  MarkerDragEvent,
   Source,
 } from "react-map-gl";
 import AddressEntry from "./AddressEntry";
@@ -166,114 +164,6 @@ const App: React.FC = () => {
     currentRoute.destination?.coordinates,
     currentRoute.rerouteSnapPoint,
   ]);
-
-  // Handle dragging the route line (route-snapping) which will re-route
-  const [isDragging, setIsDragging] = useState(false);
-
-  const handleMouseDown = (e: MapLayerMouseEvent) => {
-    // If the pointer is clicked on a route line, sets dragging to true (enables dragging behaviour)
-  };
-
-  // Mouse is released, sets dragging to false (disables dragging behaviour)
-  //    and if the pointer is landed on a road, re-routes (updates) the current route
-  const handleMouseUp = (e: MapLayerMouseEvent) => {
-    //
-  };
-
-  // Snap point to road network using Map Matching API
-  const snapPointToRoad = async (
-    point: [number, number]
-  ): Promise<[number, number]> => {
-    // If snapping fails, return the original point
-    return point;
-  };
-
-  // Debounce to avoid excessive api calls and rate limit errors
-  // This avoids exceeding the rate limit
-  // The pointer is updated as the user is still dragging the route
-  // The re-routing is triggered as the user moves the pointer on the map
-  // This ensures that we don't call the snapping api excessively
-  // This is invoked on mouse move
-  const debouncedSnapPointToRoad = () => {
-    //
-  };
-
-  // Re routing the current line as the mouse is moving
-  const handleMouseMove = (e: MapLayerMouseEvent) => {
-    //
-  };
-
-  // Handle cursor style by changing it to a grab icon to indicate succesful snap
-  // TODO this doesn't work all the time for some reason (graps but doesn't change the icon)
-  const handleMouseEnter = (e: MapLayerMouseEvent) => {
-    //
-  };
-
-  // Restore the mouse style
-  const handleMouseLeave = (e: MapLayerMouseEvent) => {
-    //
-  };
-
-  // Re-routing when the origin or destination marker is dragged around
-  const handleCurrentMarkerDrag = (
-    event: MarkerDragEvent,
-    type: "origin" | "destination"
-  ) => {
-    // The address textbox on the left panel is also updated as coordinates change
-  };
-
-  const fetchRoute = async () => {
-    if (currentRoute.origin && currentRoute.destination) {
-      const coordinates = [
-        currentRoute.origin.coordinates,
-        ...(currentRoute.rerouteSnapPoint
-          ? [currentRoute.rerouteSnapPoint]
-          : []),
-        currentRoute.destination.coordinates,
-      ];
-
-      const coordinatesString = coordinates
-        .map((coord) => `${coord[0]},${coord[1]}`)
-        .join(";");
-
-      // Use the 'continue_straight' parameter to avoid U-turns
-      const url = `${mapboxDirectionsApi}/${coordinatesString}?geometries=geojson&continue_straight=true&access_token=${mapboxgl.accessToken}`;
-
-      // Fetch the route with the given coordinates
-      try {
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.routes && data.routes.length > 0) {
-          // Single route with the geometry
-          const geometry = data.routes[0].geometry;
-
-          setCurrentRoute((prev) => ({
-            ...prev,
-            geometry,
-          }));
-        }
-      } catch (error) {
-        console.error("Error fetching route:", error);
-      }
-    }
-  };
-
-  // Debouncing to stabilise the route updates
-  const debouncedUpdateRoute = debounce(
-    async (lngLat: [number, number], type: "origin" | "destination") => {
-      //
-    },
-    1000 // TODO Delay in milliseconds, this was used to be 2 but that was too long. Considering a bit less than a second (feedback first)
-  );
-
-  // Handle dragging origin or destination
-  const handleCurrentMarkerDragEnd = (
-    event: MarkerDragEvent,
-    type: "origin" | "destination"
-  ) => {
-    //
-  };
 
   return (
     <div style={{ height: "100vh", display: "flex" }}>
