@@ -1,3 +1,4 @@
+import { LineString } from "geojson";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef, useState } from "react";
@@ -10,7 +11,7 @@ import MapGL, {
   Source,
 } from "react-map-gl";
 import AddressEntry from "./AddressEntry";
-import { ContextMenuProps, CurrentRoute, Route } from "./interfaces";
+import { ContextMenuProps, CurrentRoute, Route, Waypoint } from "./interfaces";
 import CustomMarker from "./Marker";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_API_TOKEN || "";
@@ -38,7 +39,7 @@ const App: React.FC = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeCounter, setRouteCounter] = useState<number>(1);
   // Caching reverse geocode in-memory in order to reduce the number of calls to the api
-  // This avoids exceeding the rate limit
+  //  This avoids exceeding the rate limit for the geocoding api
   const reverseGeocodeCache = new Map<string, string>();
 
   const mapRef = useRef<MapRef | null>(null);
@@ -56,7 +57,7 @@ const App: React.FC = () => {
     });
   };
 
-  // Map click which only closes the context menu at this stage
+  // Closes the context menu
   // TODO we will add setting single point later on
   const handleMapClick = (e: MapLayerMouseEvent) => {
     if (contextMenu.visible) {
@@ -75,7 +76,7 @@ const App: React.FC = () => {
         origin: {
           coordinates: [lngLat.lng, lngLat.lat],
           address,
-        },
+        } as Waypoint,
       }));
     } else if (action === "destination") {
       setCurrentRoute((prev) => ({
@@ -83,7 +84,7 @@ const App: React.FC = () => {
         destination: {
           coordinates: [lngLat.lng, lngLat.lat],
           address,
-        },
+        } as Waypoint,
       }));
     }
 
@@ -117,7 +118,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Fetch route when origin, destination, or rerouteSnapPoint changes
+  // Fetch shortest path between the points when origin or destination changes
   useEffect(() => {
     const fetchRoute = async () => {
       if (currentRoute.origin && currentRoute.destination) {
@@ -142,7 +143,7 @@ const App: React.FC = () => {
           const data = await response.json();
 
           if (data.routes && data.routes.length > 0) {
-            const geometry = data.routes[0].geometry;
+            const geometry = data.routes[0].geometry as LineString;
 
             setCurrentRoute((prev) => ({
               ...prev,
@@ -270,7 +271,6 @@ const App: React.FC = () => {
       </div>
 
       {/* Map */}
-      {/* Clicking & dragging functionality, marker and route dispplays */}
       <div style={{ flexGrow: 1, position: "relative" }}>
         <MapGL
           ref={mapRef}
@@ -320,7 +320,7 @@ const App: React.FC = () => {
                 type="line"
                 paint={{
                   "line-color": "#3887be",
-                  "line-width": 6,
+                  "line-width": 16,
                 }}
                 layout={{
                   "line-cap": "round",

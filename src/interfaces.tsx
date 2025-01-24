@@ -1,4 +1,7 @@
 // This specifies a point on the map, with the additional address property to dynamically
+
+import { LineString } from "geojson";
+
 //    convert the coordinates to address for the left panel (reverse geocode)
 export interface Waypoint {
   coordinates: [number, number];
@@ -11,14 +14,14 @@ export interface CurrentRoute {
   destination: Waypoint | null;
   // Only the current route can be snapped - keeps the point information
   rerouteSnapPoint: [number, number] | null;
-  geometry: any;
+  geometry: LineString | null;
 }
 
 export interface Route {
   id: number;
   origin: Waypoint;
   destination: Waypoint;
-  geometry: any;
+  geometry: LineString | null;
 }
 
 export interface ContextMenuProps {
